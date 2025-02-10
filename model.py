@@ -82,10 +82,11 @@ class EncoderBlock(nn.Module):
         super(EncoderBlock, self).__init__()
         self.self_attention = self_attention
         self.position_ff = position_ff
+        self.residuals = [ResidualConnectionLayer() for _ in range(2)]
 
     def forward(self, src, src_mask):
-        out = self.self_attention(query=src, key=src, value=src, mask=src_mask)
-        out = self.position_ff(out)
+        out = self.residuals[0](src, lambda src: self.self_attention(query=src, key=src, value=src, mask=src_mask))
+        out = self.residuals[1](out, self.position_ff)
 
         return out
 
