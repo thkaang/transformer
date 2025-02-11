@@ -4,6 +4,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from functions import make_pad_mask, make_subsequent_mask
 
 
 class ResidualConnectionLayer(nn.Module):
@@ -112,28 +113,19 @@ class Transformer(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def make_pad_mask(self, query, key, pad_idx=1):
-        # query: [n_batch, query_seq_len]
-        # key: [n_batch, key_seq_len]
-        query_seq_len, key_seq_len = query.size(1), key.size(1)
-
-        key_mask = key.ne(pad_idx).unsqueeze(1).unsqueeze(2)    # [n_batch, 1, 1, key_seq_len]
-        key_mask = key_mask.repeat(1, 1, query_seq_len, 1)      # [n_batch, 1, query_seq_len, key_seq_len]
-
-        query_mask = query.ne(pad_idx).unsqueeze(1).unsqueeze(3)    # [n_batch, 1, query_seq_len, 1]
-        query_mask = query_mask.repeat(1, 1, 1, key_seq_len)        # [n_batch, 1, query_seq_len, key_seq_len]
-
-        # should be checked how this works
-        mask = key_mask & query_mask
-        mask.requires_grad = False
-        return mask
-
     def make_src_mask(self, src):
-        pad_mask = self.make_pad_mask(src, src)
+        pad_mask = make_pad_mask(src, src)
         return pad_mask
+
+    def make_tgt_mask(self, tgt):
+        pad_mask = make_pad_mask(tgt, tgt)
+        seq_mask = make_subsequent_mask(tgt, tgt)
+        mask = pad_mask & seq_mask
+        return mask
 
     def forward(self, src, tgt, src_mask):
         encoder_out = self.encoder(src, src_mask)
         y = self.decoder(tgt, encoder_out)
 
         return y
+    
