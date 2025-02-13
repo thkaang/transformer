@@ -134,9 +134,50 @@ class Decoder(nn.Module):
         return out
 
 
+class TokenEmbedding(nn.Module):
+    def __int__(self, d_embed, vocab_size):
+        super(TokenEmbedding, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_embed)
+        self.d_embed = d_embed
+
+    def forwad(self, x):
+        out = self.embedding(x)*math.sqrt(self.d_embed)
+        return out
+
+
+class TransformerEmbedding(nn.Module):
+    def __int__(self, token_embed, pos_embed):
+        super(TransformerEmbedding, self).__init__()
+        self.embedding = nn.Sequential(token_embed, pos_embed)
+
+    def forward(self, x):
+        out = self.embedding(x)
+        return out
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_embed, max_len=256, device=torch.device("gpu")):
+        super(PositionalEncoding, self).__init__()
+        encoding = torch.zeros(max_len, d_embed)
+        encoding.requires_grad = False
+        position = torch.arange(0, max_len).float().unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_embed, 2) * -math.log(10000.0) / d_embed)
+        encoding[:, 0::2] = torch.sin(position * div_term)
+        encoding[:, 1::2] = torch.cos(position * div_term)
+        self.encoding = encoding.unsqueeze(0).to(device)
+
+    def forward(self, x):
+        _, seq_len, _ = x.size()
+        pos_embed = self.encoding[:, :seq_len, :]
+        out = x + pos_embed
+        return out
+
+
 class Transformer(nn.Module):
-    def __init__(self, encoder, decoder):
+    def __init__(self, src_embed, tgt_embed, encoder, decoder):
         super(Transformer, self).__init__()
+        self.src_embed = src_embed
+        self.tgt_embed = tgt_embed
         self.encoder = encoder
         self.decoder = decoder
 
@@ -158,7 +199,7 @@ class Transformer(nn.Module):
         src_mask = self.make_src_mask(src)
         tgt_mask = self.make_tgt_mask(tgt)
         src_tgt_mask = self.make_src_tgt_mask(src, tgt)
-        encoder_out = self.encoder(src, src_mask)
-        y = self.decoder(tgt, encoder_out, tgt_mask, src_tgt_mask)
+        encoder_out = self.encoder(self.src_embed(src), src_mask)
+        y = self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
 
         return y
