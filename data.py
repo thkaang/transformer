@@ -2,8 +2,13 @@ import os
 from utils import save_pkl, load_pkl
 
 class Multi30k():
-    def __init__(self):
+    def __init__(self,
+                 lang=("en", "de")):
         self.dataset_name = "multi30k"
+        self.lang_src, self.lang_tgt = lang
+
+        self.tokenizer_src = self.build_tokenizer(self.lang_src)
+        self.tokenizer_tgt = self.build_tokenizer(self.lang_tgt)
 
         self.train = None
         self.valid = None
@@ -48,3 +53,12 @@ class Multi30k():
                 test_de = [text.rstrip() for text in f]
             self.test = [(en, de) for en, de in zip(test_en, test_de)]
             save_pkl(self.test, test_file)
+
+    def build_tokenizer(self, lang):
+        from torchtext.data.utils import get_tokenizer
+        spacy_lang_dict = {
+            'en': "en_core_web_sm",
+            'de': "de_core_news_sm"
+        }
+        assert lang in spacy_lang_dict.keys()
+        return get_tokenizer("spacy", spacy_lang_dict[lang])
