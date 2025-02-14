@@ -123,7 +123,7 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __int__(self, decoder_block, n_layer):
+    def __init__(self, decoder_block, n_layer):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([copy.deepcopy(decoder_block) for _ in range(n_layer)])
 
@@ -135,7 +135,7 @@ class Decoder(nn.Module):
 
 
 class TokenEmbedding(nn.Module):
-    def __int__(self, d_embed, vocab_size):
+    def __init__(self, d_embed, vocab_size):
         super(TokenEmbedding, self).__init__()
         self.embedding = nn.Embedding(vocab_size, d_embed)
         self.d_embed = d_embed
@@ -146,7 +146,7 @@ class TokenEmbedding(nn.Module):
 
 
 class TransformerEmbedding(nn.Module):
-    def __int__(self, token_embed, pos_embed):
+    def __init__(self, token_embed, pos_embed):
         super(TransformerEmbedding, self).__init__()
         self.embedding = nn.Sequential(token_embed, pos_embed)
 
@@ -174,12 +174,13 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, src_embed, tgt_embed, encoder, decoder):
+    def __init__(self, src_embed, tgt_embed, encoder, decoder, generator):
         super(Transformer, self).__init__()
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
         self.encoder = encoder
         self.decoder = decoder
+        self.generator = generator
 
     def make_src_mask(self, src):
         pad_mask = make_pad_mask(src, src)
@@ -200,6 +201,8 @@ class Transformer(nn.Module):
         tgt_mask = self.make_tgt_mask(tgt)
         src_tgt_mask = self.make_src_tgt_mask(src, tgt)
         encoder_out = self.encoder(self.src_embed(src), src_mask)
-        y = self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+        decoder_out = self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+        out = self.generator(decoder_out)
+        out = F.log_softmax(out, dim=-1)
 
-        return y
+        return out, decoder_out
