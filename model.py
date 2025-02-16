@@ -156,7 +156,7 @@ class TransformerEmbedding(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_embed, max_len=256, device=torch.device("gpu")):
+    def __init__(self, d_embed, max_len=256, device=torch.device("cuda")):
         super(PositionalEncoding, self).__init__()
         encoding = torch.zeros(max_len, d_embed)
         encoding.requires_grad = False
