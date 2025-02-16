@@ -1,6 +1,8 @@
 import os
+from torch.utils.data import DataLoader
 from utils import save_pkl, load_pkl
 from torchtext.vocab import build_vocab_from_iterator
+import torchtext.transforms as T
 
 class Multi30k():
     def __init__(self,
@@ -39,6 +41,10 @@ class Multi30k():
         self.vocab_src = None
         self.vocab_tgt = None
         self.build_vocab()
+
+        self.transform_src = None
+        self.transform_tgt = None
+        self.build_transform()
 
     def build_dataset(self, raw_dir="raw", cache_dir=".data"):
         cache_dir = os.path.join(cache_dir, self.dataset_name)
@@ -113,8 +119,6 @@ class Multi30k():
         self.vocab_src = vocab_src
         self.vocab_tgt = vocab_tgt
 
-
-
     def build_tokenizer(self, lang):
         from torchtext.data.utils import get_tokenizer
         spacy_lang_dict = {
@@ -123,3 +127,31 @@ class Multi30k():
         }
         assert lang in spacy_lang_dict.keys()
         return get_tokenizer("spacy", spacy_lang_dict[lang])
+
+    def build_transform(self):
+        def get_transform(self, vocab):
+            return T.Sequential(
+                T.VocabTransform(vocab),
+                T.Truncate(self.max_seq_len-2),
+                T.AddToken(token=self.sos_idx, begin=True),
+                T.AddToken(token=self.eos_idx, begin=False),
+                T.ToTensor(padding_value=self.pad_idx)
+            )
+
+        self.transform_src = get_transform(self, self.vocab_src)
+        self.transform_tgt = get_transform(self, self.vocab_tgt)
+
+    def collate_fn(self, pairs):
+        src = [self.tokenizer_src(pair[0]) for pair in pairs]
+        tgt = [self.tokenizer_tgt(pair[1]) for pair in pairs]
+        batch_src = self.transform_src(src)
+        batch_tgt = self.transform_tgt(tgt)
+        return (batch_src, batch_tgt)
+
+    def get_iter(self, **kwargs):
+        if self.transform_src is None:
+            self.build_transform()
+        train_iter = DataLoader(self.train, collate_fn=self.collate_fn, **kwargs)
+        valid_iter = DataLoader(self.valid, collate_fn=self.collate_fn, **kwargs)
+        test_iter = DataLoader(self.test, collate_fn=self.collate_fn, **kwargs)
+        return train_iter, valid_iter, test_iter
