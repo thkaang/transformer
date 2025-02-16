@@ -1,11 +1,32 @@
 import os
 from utils import save_pkl, load_pkl
+from torchtext.vocab import build_vocab_from_iterator
 
 class Multi30k():
     def __init__(self,
-                 lang=("en", "de")):
+                 lang=("en", "de"),
+                 unk_idx=0,
+                 pad_idx=1,
+                 sos_idx=2,
+                 eos_idx=3,
+                 vocab_min_freq=2):
         self.dataset_name = "multi30k"
         self.lang_src, self.lang_tgt = lang
+        self.unk_idx = unk_idx
+        self.pad_idx = pad_idx
+        self.sos_idx = sos_idx
+        self.eos_idx = eos_idx
+        self.unk = "<unk>"
+        self.pad = "<pad>"
+        self.sos = "<sos>"
+        self.eos = "<eos>"
+        self.specials = {
+            self.unk: self.unk_idx,
+            self.pad: self.pad_idx,
+            self.sos: self.sos_idx,
+            self.eos: self.eos_idx
+        }
+        self.vocab_min_freq = vocab_min_freq
 
         self.tokenizer_src = self.build_tokenizer(self.lang_src)
         self.tokenizer_tgt = self.build_tokenizer(self.lang_tgt)
@@ -14,6 +35,10 @@ class Multi30k():
         self.valid = None
         self.test = None
         self.build_dataset()
+
+        self.vocab_src = None
+        self.vocab_tgt = None
+        self.build_vocab()
 
     def build_dataset(self, raw_dir="raw", cache_dir=".data"):
         cache_dir = os.path.join(cache_dir, self.dataset_name)
@@ -53,6 +78,42 @@ class Multi30k():
                 test_de = [text.rstrip() for text in f]
             self.test = [(en, de) for en, de in zip(test_en, test_de)]
             save_pkl(self.test, test_file)
+
+    def build_vocab(self, cache_dir=".data"):
+        assert self.train is not None
+
+        def yield_tokens(is_src=True):
+            for text_pair in self.train:
+                if is_src:
+                    yield [str(token) for token in self.tokenizer_src(text_pair[0])]
+                else:
+                    yield [str(token) for token in self.tokenizer_tgt(text_pair[1])]
+
+        cache_dir = os.path.join(cache_dir, self.dataset_name)
+        os.makedirs(cache_dir, exist_ok=True)
+
+        vocab_src_file = os.path.join(cache_dir, f"vocab_{self.lang_src}.pkl")
+        if os.path.exists(vocab_src_file):
+            vocab_src = load_pkl(vocab_src_file)
+        else:
+            vocab_src = build_vocab_from_iterator(yield_tokens(is_src=True), min_freq=self.vocab_min_freq,
+                                                  specials=list(self.specials.keys()))
+            vocab_src.set_default_index(self.unk_idx)
+            save_pkl(vocab_src, vocab_src_file)
+
+        vocab_tgt_file = os.path.join(cache_dir, f"vocab_{self.lang_tgt}.pkl")
+        if os.path.exists(vocab_tgt_file):
+            vocab_tgt = load_pkl(vocab_tgt_file)
+        else:
+            vocab_tgt = build_vocab_from_iterator(yield_tokens(is_src=False), min_freq=self.vocab_min_freq,
+                                                  specials=list(self.specials.keys()))
+            vocab_tgt.set_default_index(self.unk_idx)
+            save_pkl(vocab_tgt, vocab_tgt_file)
+
+        self.vocab_src = vocab_src
+        self.vocab_tgt = vocab_tgt
+
+
 
     def build_tokenizer(self, lang):
         from torchtext.data.utils import get_tokenizer
