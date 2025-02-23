@@ -6,7 +6,7 @@ from torch import nn, optim
 from train import build_default_model
 from data import Multi30k
 from config import *
-from utils import get_bleu_score
+from utils import get_bleu_score, greedy_decode
 
 DATASET = Multi30k()
 
@@ -103,6 +103,11 @@ def main():
         if epoch > WARM_UP_STEP:
             scheduler.step(valid_loss)
         logging.info(f"valid_loss: {valid_loss:.5f}, bleu_score: {bleu_score:.5f}")
+
+        logging.info(DATASET.translate(model, "A little girl climbing into a wooden playhouse .", greedy_decode))
+
+    test_loss, bleu_score = evaluate(model, test_iter, criterion)
+    logging.info(f"test_loss: {test_loss:.5f}, bleu_score: {bleu_score:.5f}")
 
 
 if __name__ == "__main__":

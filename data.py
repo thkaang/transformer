@@ -155,3 +155,15 @@ class Multi30k():
         valid_iter = DataLoader(self.valid, collate_fn=self.collate_fn, **kwargs)
         test_iter = DataLoader(self.test, collate_fn=self.collate_fn, **kwargs)
         return train_iter, valid_iter, test_iter
+
+    def translate(self, model, src_sentence: str, decode_func):
+        model.eval()
+        src = self.transform_src([self.tokenizer_src(src_sentence)]).view(1, -1)
+        num_tokens = src.shape[1]
+        tgt_tokens = decode_func(model,
+                                 src,
+                                 max_len=num_tokens + 5,
+                                 start_symbol=self.sos_idx,
+                                 end_symbol=self.eos_idx).flatten().cpu().numpy()
+        tgt_sentence = " ".join(self.vocab_tgt.lookup_tokens(tgt_tokens))
+        return tgt_sentence

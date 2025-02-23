@@ -212,12 +212,18 @@ class Transformer(nn.Module):
         pad_mask = make_pad_mask(tgt, src)
         return pad_mask
 
+    def encode(self, src, src_mask):
+        return self.encoder(self.src_embed(src), src_mask)
+
+    def decode(self, tgt, encoder_out, tgt_mask, src_tgt_mask):
+        return self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+
     def forward(self, src, tgt):
         src_mask = self.make_src_mask(src)
         tgt_mask = self.make_tgt_mask(tgt)
         src_tgt_mask = self.make_src_tgt_mask(src, tgt)
-        encoder_out = self.encoder(self.src_embed(src), src_mask)
-        decoder_out = self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+        encoder_out = self.encode(src, src_mask)
+        decoder_out = self.decode(tgt, encoder_out, tgt_mask, src_tgt_mask)
         out = self.generator(decoder_out)
         out = F.log_softmax(out, dim=-1)
 
