@@ -7,6 +7,7 @@ from train import build_default_model
 from data import Multi30k
 from config import *
 from utils import get_bleu_score, greedy_decode
+from tqdm import tqdm
 
 DATASET = Multi30k()
 
@@ -15,7 +16,7 @@ def train(model, data_loader, optimizer, criterion, epoch, checkpoint_dir):
     model.train()
     epoch_loss = 0
 
-    for idx, (src, tgt) in enumerate(data_loader):
+    for idx, (src, tgt) in tqdm(enumerate(data_loader)):
         src = src.to(model.device)
         tgt = tgt.to(model.device)
         tgt_x = tgt[:, :-1]
@@ -35,7 +36,7 @@ def train(model, data_loader, optimizer, criterion, epoch, checkpoint_dir):
         epoch_loss += loss.item()
     num_samples = idx + 1
 
-    if checkpoint_dir:
+    if checkpoint_dir and (epoch + 1) % 50 == 0:
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_file = os.path.join(checkpoint_dir, f"{epoch:04d}.pt")
         torch.save({
@@ -77,10 +78,8 @@ def evaluate(model, data_loader, criterion):
     return loss_avr, bleu_score
 
 
-
-
 def main():
-    model = build_default_model(len(DATASET.vocab_src), len(DATASET.vocab_tgt), device=DEVICE, dr_rate=DROPOUT_RATE)
+    model = build_default_model(len(DATASET.vocab_src), len(DATASET.vocab_tgt), device=DEVICE, dr_rate=DROPOUT_RATE).to("cuda")
 
     def initialize_weights(model):
         if hasattr(model, 'weight') and model.weight.dim() > 1:

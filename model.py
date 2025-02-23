@@ -154,7 +154,7 @@ class TokenEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_embed)
         self.d_embed = d_embed
 
-    def forwad(self, x):
+    def forward(self, x):
         out = self.embedding(x)*math.sqrt(self.d_embed)
         return out
 

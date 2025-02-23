@@ -7,6 +7,7 @@ import torchtext.transforms as T
 class Multi30k():
     def __init__(self,
                  lang=("en", "de"),
+                 max_seq_len=256,
                  unk_idx=0,
                  pad_idx=1,
                  sos_idx=2,
@@ -14,6 +15,7 @@ class Multi30k():
                  vocab_min_freq=2):
         self.dataset_name = "multi30k"
         self.lang_src, self.lang_tgt = lang
+        self.max_seq_len = max_seq_len
         self.unk_idx = unk_idx
         self.pad_idx = pad_idx
         self.sos_idx = sos_idx
