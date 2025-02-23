@@ -1,10 +1,12 @@
 import logging
 import os
+import numpy as np
 import torch
 from torch import nn, optim
 from train import build_default_model
 from data import Multi30k
 from config import *
+from utils import get_bleu_score
 
 DATASET = Multi30k()
 
@@ -21,10 +23,10 @@ def train(model, data_loader, optimizer, criterion, epoch, checkpoint_dir):
 
         optimizer.zero_grad()
 
-        output, _ = model(src, tgt_x)
+        output, _ = model(src, tgt_x)   # output shape: [n_batch, seq_len, tgt_vocab_size]
 
-        y_hat = output.contiguous().view(-1, output.shape[-1])  # check shape
-        y_gt = tgt_y.contiguous().view(-1)
+        y_hat = output.contiguous().view(-1, output.shape[-1])  # [n_batch*seq_len, tgt_vocab_size]
+        y_gt = tgt_y.contiguous().view(-1)  # [n_batch*seq_len]
         loss = criterion(y_hat, y_gt)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -44,6 +46,37 @@ def train(model, data_loader, optimizer, criterion, epoch, checkpoint_dir):
         }, checkpoint_file)
 
     return epoch_loss / num_samples
+
+
+def evaluate(model, data_loader, criterion):
+    model.eval()
+    epoch_loss = 0
+
+    total_bleu = []
+    with torch.no_grad():
+        for idx, (src, tgt) in enumerate(data_loader):
+            src = src.to(model.device)
+            tgt = tgt.to(model.device)
+            tgt_x = tgt[:, :-1]
+            tgt_y = tgt[:, 1:]
+
+            output, _ = model(src, tgt_x)
+
+            y_hat = output.contiguous().view(-1, output.shape[-1])
+            y_gt = tgt_y.contiguous().view(-1)
+            loss = criterion(y_hat, y_gt)
+
+            epoch_loss += loss.item()
+            score = get_bleu_score(output, tgt_y, DATASET.vocab_tgt, DATASET.specials)
+            total_bleu.append(score)
+
+        num_samples = idx + 1
+
+    loss_avr = epoch_loss / num_samples
+    bleu_score = np.mean(total_bleu)
+    return loss_avr, bleu_score
+
+
 
 
 def main():
@@ -66,6 +99,11 @@ def main():
         logging.info(f"*****epoch: {epoch:02}*****")
         train_loss = train(model, train_iter, optimizer, criterion, epoch, CHECKPOINT_DIR)
         logging.info(f"train_loss: {train_loss:.5f}")
+        valid_loss, bleu_score = evaluate(model, valid_iter, criterion)
+        if epoch > WARM_UP_STEP:
+            scheduler.step(valid_loss)
+        logging.info(f"valid_loss: {valid_loss:.5f}, bleu_score: {bleu_score:.5f}")
+
 
 if __name__ == "__main__":
     torch.manual_seed(0)
