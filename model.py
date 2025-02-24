@@ -2,37 +2,43 @@
 import copy
 import math
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 from functions import make_pad_mask, make_subsequent_mask
 
 
 class ResidualConnectionLayer(nn.Module):
-    def __init__(self):
+    def __init__(self, norm, dr_rate=0):
         super(ResidualConnectionLayer, self).__init__()
+        self.norm = norm
+        self.dropout = nn.Dropout(p=dr_rate)
 
     def forward(self, x, sub_layer):
         out = sub_layer(x)
+        out = self.dropout(out)
         out = out + x
+        out = self.norm(out)
         return out
 
 
 class PositionWiseFeedForwardLayer(nn.Module):
-    def __init__(self, fc1, fc2):
+    def __init__(self, fc1, fc2, dr_rate=0):
         super(PositionWiseFeedForwardLayer, self).__init__()
         self.fc1 = fc1  # (d_embed, d_ff)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dr_rate)
         self.fc2 = fc2  # (d_ff, d_embed)
 
     def forward(self, x):
         out = self.fc1(x)
         out = self.relu(out)
+        out = self.dropout(out)
         out = self.fc2(out)
         return out
 
 
 class MultiHeadAttentionLayer(nn.Module):
-    def __init__(self, d_model, h, qkv_fc, out_fc):
+    def __init__(self, d_model, h, qkv_fc, out_fc, dr_rate=0):
         super(MultiHeadAttentionLayer, self).__init__()
         self.d_model = d_model
         self.h = h
@@ -40,6 +46,7 @@ class MultiHeadAttentionLayer(nn.Module):
         self.k_fc = copy.deepcopy(qkv_fc)  # [d_embed, d_model]
         self.v_fc = copy.deepcopy(qkv_fc)  # [d_embed, d_model]
         self.out_fc = out_fc
+        self.dropout = nn.Dropout(p=dr_rate)
 
     def calculate_attention(self, query, key, value, mask):
         # query, key, value: [n_batch, h, seq_len, d_k]
@@ -51,6 +58,7 @@ class MultiHeadAttentionLayer(nn.Module):
         if mask is not None:
             attention_score = attention_score.masked_fill(mask == 0, -1e9)
         attention_prob = F.softmax(attention_score, dim=-1)  # should this be -2? [n_batch, h, seq_len, seq_len]
+        attention_prob = self.dropout(attention_prob)
         out = torch.matmul(attention_prob, value)  # [n_batch, h, seq_len, d_k]
 
         return out
@@ -79,58 +87,64 @@ class MultiHeadAttentionLayer(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, self_attention, position_ff):
+    def __init__(self, self_attention, position_ff, norm, dr_rate=0):
         super(EncoderBlock, self).__init__()
         self.self_attention = self_attention
+        self.residual1 = ResidualConnectionLayer(copy.deepcopy(norm), dr_rate)
         self.position_ff = position_ff
-        self.residuals = [ResidualConnectionLayer() for _ in range(2)]
+        self.residual2 = ResidualConnectionLayer(copy.deepcopy(norm), dr_rate)
 
     def forward(self, src, src_mask):
-        out = self.residuals[0](src, lambda out: self.self_attention(query=out, key=out, value=out, mask=src_mask))
-        out = self.residuals[1](out, self.position_ff)
+        out = self.residual1(src, lambda out: self.self_attention(query=out, key=out, value=out, mask=src_mask))
+        out = self.residual2(out, self.position_ff)
 
         return out
 
 
 class Encoder(nn.Module):
-    def __init__(self, encoder_block, n_layer):
+    def __init__(self, encoder_block, n_layer, norm):
         super(Encoder, self).__init__()
-        self.layers = []
-        for i in range(n_layer):
-            self.layers.append(copy.deepcopy(encoder_block))
+        self.layers = nn.ModuleList([copy.deepcopy(encoder_block) for _ in range(n_layer)])
+        self.norm = norm
 
     def forward(self, src, src_mask):
         out = src
         for layer in self.layers:
             out = layer(out, src_mask)
+        out = self.norm(out)
 
         return out
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, self_attention, cross_attention, position_ff):
+    def __init__(self, self_attention, cross_attention, position_ff, norm, dr_rate=0):
         super(DecoderBlock, self).__init__()
         self.self_attention = self_attention
+        self.residual1 = ResidualConnectionLayer(copy.deepcopy(norm), dr_rate)
         self.cross_attention = cross_attention
+        self.residual2 = ResidualConnectionLayer(copy.deepcopy(norm), dr_rate)
         self.position_ff = position_ff
-        self.residuals = [ResidualConnectionLayer() for _ in range(3)]
+        self.residual3 = ResidualConnectionLayer(copy.deepcopy(norm), dr_rate)
 
     def forward(self, tgt, encoder_out, tgt_mask, src_tgt_mask):
-        out = self.residuals[0](tgt, lambda out: self.self_attention(query=out, key=out, value=out, mask=tgt_mask))
-        out = self.residuals[1](out, lambda out: self.cross_attention(query=out, key=encoder_out, value=encoder_out, mask=src_tgt_mask))
-        out = self.residuals[2](out, self.position_ff)
+        out = self.residual1(tgt, lambda out: self.self_attention(query=out, key=out, value=out, mask=tgt_mask))
+        out = self.residual2(out, lambda out: self.cross_attention(query=out, key=encoder_out, value=encoder_out, mask=src_tgt_mask))
+        out = self.residual3(out, self.position_ff)
         return out
 
 
 class Decoder(nn.Module):
-    def __init__(self, decoder_block, n_layer):
+    def __init__(self, decoder_block, n_layer, norm):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([copy.deepcopy(decoder_block) for _ in range(n_layer)])
+        self.norm = norm
 
     def forward(self, tgt, encoder_out, tgt_mask, src_tgt_mask):
         out = tgt
         for layer in self.layers:
             out = layer(out, encoder_out, tgt_mask, src_tgt_mask)
+        out = self.norm(out)
+
         return out
 
 
@@ -140,23 +154,25 @@ class TokenEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_embed)
         self.d_embed = d_embed
 
-    def forwad(self, x):
+    def forward(self, x):
         out = self.embedding(x)*math.sqrt(self.d_embed)
         return out
 
 
 class TransformerEmbedding(nn.Module):
-    def __init__(self, token_embed, pos_embed):
+    def __init__(self, token_embed, pos_embed, dr_rate=0):
         super(TransformerEmbedding, self).__init__()
         self.embedding = nn.Sequential(token_embed, pos_embed)
+        self.dropout = nn.Dropout(p=dr_rate)
 
     def forward(self, x):
         out = self.embedding(x)
+        out = self.dropout(out)
         return out
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_embed, max_len=256, device=torch.device("gpu")):
+    def __init__(self, d_embed, max_len=256, device=torch.device("cuda")):
         super(PositionalEncoding, self).__init__()
         encoding = torch.zeros(max_len, d_embed)
         encoding.requires_grad = False
@@ -196,12 +212,18 @@ class Transformer(nn.Module):
         pad_mask = make_pad_mask(tgt, src)
         return pad_mask
 
+    def encode(self, src, src_mask):
+        return self.encoder(self.src_embed(src), src_mask)
+
+    def decode(self, tgt, encoder_out, tgt_mask, src_tgt_mask):
+        return self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+
     def forward(self, src, tgt):
         src_mask = self.make_src_mask(src)
         tgt_mask = self.make_tgt_mask(tgt)
         src_tgt_mask = self.make_src_tgt_mask(src, tgt)
-        encoder_out = self.encoder(self.src_embed(src), src_mask)
-        decoder_out = self.decoder(self.tgt_embed(tgt), encoder_out, tgt_mask, src_tgt_mask)
+        encoder_out = self.encode(src, src_mask)
+        decoder_out = self.decode(tgt, encoder_out, tgt_mask, src_tgt_mask)
         out = self.generator(decoder_out)
         out = F.log_softmax(out, dim=-1)
 
